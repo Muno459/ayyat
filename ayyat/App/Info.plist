@@ -2,6 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Export-compliance bypass. ayyat only uses Apple's OS-provided
+         encryption (URLSession HTTPS, Keychain, ASWebAuthenticationSession);
+         no proprietary or standard crypto is implemented or bundled.
+         Setting this key to false lets the build skip the per-version
+         export-compliance prompt in App Store Connect. -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
     <key>CFBundleIdentifier</key>
     <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleName</key>

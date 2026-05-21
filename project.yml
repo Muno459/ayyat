@@ -51,7 +51,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: ayyat/App/ayyat.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.mostafamahdi.ayyat
         MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: 2
+        CURRENT_PROJECT_VERSION: 3
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
         TARGETED_DEVICE_FAMILY: "1"
@@ -73,7 +73,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: ayyatWidgets/ayyatWidgets.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.mostafamahdi.ayyat.widgets
         MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: 2
+        CURRENT_PROJECT_VERSION: 3
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO

@@ -159,62 +159,33 @@ struct QuizView: View {
 
                 Spacer()
 
-            // Card with drag gesture
-            ZStack {
-                // Swipe hint indicators
-                if dragOffset.width > 30 {
-                    Label("Got It", systemImage: "checkmark")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(AyyatColors.mastered)
-                        .transition(.opacity)
+            // Card with drag gesture.
+            //
+            // The card lives in its OWN view (`SwipeableQuizCard`) with
+            // private `@State` for offset/rotation. That way the next
+            // card's mount starts with a fresh offset of .zero — it
+            // can't inherit the previous card's drag value, which was
+            // the source of the "card stays stuck mid-swipe and the new
+            // one never appears" bug. The parent only learns the swipe
+            // outcome (left vs right) via the `onCommit` callback after
+            // the fly-off animation has played.
+            SwipeableQuizCard(
+                isFlipped: $isFlipped,
+                cardScale: cardScale,
+                content: { cardView(word: word) },
+                onCommit: { correct in
+                    swipeAway(correct: correct, word: word)
                 }
-                if dragOffset.width < -30 {
-                    Label("Learning", systemImage: "arrow.counterclockwise")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(AyyatColors.learning)
-                        .transition(.opacity)
-                }
-
-                // The card — keyed by currentIndex so SwiftUI treats each
-                // card as a fresh identity. We only apply `dragOffset` /
-                // rotation to the CURRENT card (the one whose live drag
-                // is happening). The OUTGOING card's swipe-off motion
-                // is handled by the SwiftUI removal transition (move +
-                // opacity), so the new card never has to share offset
-                // state with the dying one — that was the "old card
-                // briefly reappears" flash.
-                cardView(word: word)
-                    .scaleEffect(cardScale)
-                    .offset(currentIndex == liveCardIndex ? dragOffset : .zero)
-                    .rotationEffect(.degrees(currentIndex == liveCardIndex ? dragOffset.width / 20 : 0))
-                    .id(currentIndex)
-                    .transition(
-                        .asymmetric(
-                            insertion: .move(edge: .bottom)
-                                .combined(with: .opacity)
-                                .combined(with: .scale(scale: 0.85)),
-                            removal: .move(edge: lastSwipeDirection)
-                                .combined(with: .opacity)
-                        )
-                    )
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                dragOffset = value.translation
-                            }
-                            .onEnded { value in
-                                if value.translation.width > 100 {
-                                    swipeAway(correct: true, word: word)
-                                } else if value.translation.width < -100 {
-                                    swipeAway(correct: false, word: word)
-                                } else {
-                                    withAnimation(.spring(response: 0.3)) {
-                                        dragOffset = .zero
-                                    }
-                                }
-                            }
-                    )
-            }
+            )
+            .id(currentIndex)
+            .transition(
+                .asymmetric(
+                    insertion: .move(edge: .bottom)
+                        .combined(with: .opacity)
+                        .combined(with: .scale(scale: 0.85)),
+                    removal: .opacity   // SwipeableQuizCard handles its own off-screen translation
+                )
+            )
 
             Spacer()
 
@@ -450,22 +421,18 @@ struct QuizView: View {
             }
         }
 
-        // Record the swipe direction so the outgoing card's removal
-        // transition matches the user's gesture. We do NOT manually
-        // animate `dragOffset` to 900 — that caused the next card to
-        // briefly inherit the off-screen offset and flash back. Instead
-        // the SwiftUI removal transition (`.move(edge: lastSwipeDirection)`)
-        // handles the fly-off; the new card mounts at offset zero with
-        // its own insertion transition.
+        // The outgoing card already animated itself off-screen inside
+        // `SwipeableQuizCard`. We just advance the deck — the new card's
+        // identity change drives its own insertion transition.
         lastSwipeDirection = correct ? .trailing : .leading
 
-        scheduleAfter(0.65) {
+        // Tiny delay so the score popup / streak haptic land while the
+        // old card is still fading, not blocked by an immediate cut.
+        scheduleAfter(0.15) {
             isFlipped = false
             if currentIndex + 1 < quizWords.count {
                 withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
                     currentIndex += 1
-                    dragOffset = .zero
-                    liveCardIndex = currentIndex
                 }
             } else {
                 sessionComplete = true
@@ -653,6 +620,68 @@ struct QuizView: View {
         case .learning: AyyatColors.learning
         case .familiar: AyyatColors.introduced
         case .mastered: AyyatColors.mastered
+        }
+    }
+}
+
+// MARK: - Swipeable quiz card
+//
+// Owns its own offset / rotation state so a freshly-mounted card
+// (after the parent's `currentIndex` advances) starts at .zero —
+// it cannot inherit the previous card's drag value. This was the
+// fix for the "card stays mid-swipe, next card never appears" bug.
+struct SwipeableQuizCard<Content: View>: View {
+    @Binding var isFlipped: Bool
+    let cardScale: CGFloat
+    @ViewBuilder let content: () -> Content
+    /// Called once after the card has animated off-screen. `true` =
+    /// right swipe (got it), `false` = left swipe (still learning).
+    let onCommit: (Bool) -> Void
+
+    @State private var offset: CGSize = .zero
+    @State private var committed = false   // guards against double-trigger
+
+    var body: some View {
+        content()
+            .scaleEffect(cardScale)
+            .offset(offset)
+            .rotationEffect(.degrees(offset.width / 20))
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        guard !committed else { return }
+                        offset = value.translation
+                    }
+                    .onEnded { value in
+                        guard !committed else { return }
+                        if value.translation.width > 100 {
+                            commit(correct: true)
+                        } else if value.translation.width < -100 {
+                            commit(correct: false)
+                        } else {
+                            // Snap back to center on a non-committal flick.
+                            withAnimation(.spring(response: 0.3)) {
+                                offset = .zero
+                            }
+                        }
+                    }
+            )
+    }
+
+    private func commit(correct: Bool) {
+        committed = true
+        // Fly the card fully off-screen in the swipe direction. 900 pt
+        // is wider than any current iPhone, so the card is genuinely
+        // gone before the parent swaps in the next one.
+        withAnimation(.easeOut(duration: 0.28)) {
+            offset = CGSize(width: correct ? 900 : -900, height: 0)
+        }
+        // Signal the parent slightly *after* the fly-off so the
+        // outgoing card is visually off-screen before the next card's
+        // mount animation begins — no overlap, no flash.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(0.30))
+            onCommit(correct)
         }
     }
 }
